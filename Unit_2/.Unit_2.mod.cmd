@@ -1,0 +1,1 @@
+cmd_/home/vkernel/Documents/Kernel_Course/Learn_LinuxKernel/Unit_2/Unit_2.mod := { echo  /home/vkernel/Documents/Kernel_Course/Learn_LinuxKernel/Unit_2/Unit_2.o;  echo; } > /home/vkernel/Documents/Kernel_Course/Learn_LinuxKernel/Unit_2/Unit_2.mod

@@ -1,0 +1,29 @@
+// https://www.digitalocean.com/community/tutorials/how-to-push-an-existing-project-to-github
+
+// git init 
+
+- git init
+
+- git add "File name"
+ or add all file git add .
+// commit added files
+git commit -m "Comment"
+
+// add new remote origin (in this case Github)
+
+git remote add origin git@github.com:<Path name>.git
+
+//push to github
+git push -u -f origin master
+
+/* add user: 
+// and password is token key is gen in the github.com/settings/tokens/new
+// is fail error code: " src refspec master does not match any " 
+// then
+-	git checkout -b "master"
+	after that
+- 	git push -u origin master\
+
+save config user and password when push or pull
+	git config --global credential.helper store 
+*/	
