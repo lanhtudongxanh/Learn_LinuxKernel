@@ -11,7 +11,7 @@
 
 #define DRIVER_AUTHOR "Tiep Cao <caotiepc5@gmail.com>"
 #define DRIVER_DESC   "A sample character device driver"
-#define DRIVER_VERSION "0.2"
+#define DRIVER_VERSION "0.3"
 
 struct _vchar_drv {
 	dev_t dev_num;
@@ -43,12 +43,13 @@ static int __init vchar_driver_init(void)
 {
 	int ret = 0;
 	/* cap phat device number */
-	vchar_drv.dev_num = MKDEV(235,0);
-	ret = register_chrdev_region(vchar_drv.dev_num, 1, "vchar_device");
+	vchar_drv.dev_num = 0;
+	ret = alloc_chrdev_region(&vchar_drv.dev_num, 0, 1, "vchar_device");
 	if(ret < 0) {
-		printk("failed to register device numver statically\n");
+		printk("failed to register device numver dynamically\n");
 		goto failed_register_devnum;
 	}
+	printk("allocated device number (%d,%d)\n", MAJOR(vchar_drv.dev_num), MINOR(vchar_drv.dev_num));
 
 	/* tao device file */
 
