@@ -12,12 +12,27 @@
 #include <linux/slab.h> /* thu vien nay chua cac ham kmalloc va kfree */
 #include <linux/cdev.h> /* thu vien nay chua cac ham lam viec voi cdev */
 #include <linux/uaccess.h> /* thu vien nay chua cac ham trao doi du lieu giua cc user va kernel */
+#include <linux/ioctl.h> /* thu vien nay chua cac ham phuc vu ioctl */
 
 #include "vchar_driver.h" /* thu vien nay mo ta cac thanh ghi cua vchar device */
 
 #define DRIVER_AUTHOR "Tiep Cao <caotiepc5@gmail.com>"
 #define DRIVER_DESC   "A sample character device driver"
-#define DRIVER_VERSION "0.7"
+#define DRIVER_VERSION "0.8"
+#define MAGICAL_NUMBER 243
+#define VCHAR_CLR_DATA_REGS _IO(MAGICAL_NUMBER, 0)
+#define VCHAR_GET_STS_REGS  _IOR(MAGICAL_NUMBER, 1, sts_regs_t *)
+#define VCHAR_SET_RD_DATA_REGS _IOW(MAGICAL_NUMBER, 2, unsigned char *)
+#define VCHAR_SET_WR_DATA_REGS _IOW(MAGICAL_NUMBER, 3, unsigned char *)
+
+typedef struct {
+	unsigned char read_count_h_reg;
+	unsigned char read_count_l_reg;
+	unsigned char write_count_h_reg;
+	unsigned char write_count_l_reg;
+	unsigned char device_status_reg;
+} sts_regs_t;
+
 
 typedef struct vchar_dev {
 	unsigned char *control_regs;
@@ -105,9 +120,60 @@ int vchar_hw_write_data(vchar_dev_t *hw, int start_reg, int num_regs, char* kbuf
 	return write_bytes;
 }
 
+int vchar_hw_clear_data(vchar_dev_t *hw)
+{
+    if((hw->control_regs[CONTROL_ACCESS_REG] & CTRL_WRITE_DATA_BIT) == DISABLE)
+        return -1;
+    memset(hw->data_regs, 0, NUM_DATA_REGS * REG_SIZE);
+    hw->status_regs[DEVICE_STATUS_REG] &= ~STS_DATAREGS_OVERFLOW_BIT;
+    return 0;
+}
+
+void vchar_hw_get_status(vchar_dev_t *hw, sts_regs_t *status)
+{
+	memcpy(status, hw->status_regs, NUM_STS_REGS * REG_SIZE);
+}
+
 /* ham doc tu cac thanh ghi trang thai cua thiet bi */
 
 /* ham ghi vao cac thanh ghi dieu khien cua thiet bi */
+// ham cho phep doc tu cac thanh ghi du lieu cua thiet bi
+void vchar_hw_enable_read(vchar_dev_t *hw, unsigned char isEnable)
+{
+	if(isEnable == ENABLE)
+	{
+		// dieu khien cho phep doc tu cac thanh ghi du lieu
+		hw->control_regs[CONTROL_ACCESS_REG] |= CTRL_READ_DATA_BIT;
+		// cap nhat trang thai "co the doc"
+		hw->status_regs[DEVICE_STATUS_REG] |= STS_READ_ACCESS_BIT;
+	}
+	else
+	{
+		// dieu khien khong cho phep doc tu thanh ghi du lieu
+		hw->control_regs[CONTROL_ACCESS_REG] &= ~CTRL_READ_DATA_BIT;
+		// cap nhat trang thai "khong the doc"
+		hw->status_regs[DEVICE_STATUS_REG] &= ~STS_READ_ACCESS_BIT;
+	}
+}
+
+// ham cho phep ghi vao cac thanh ghi du lieu cua thiet bi
+void vchar_hw_enable_write(vchar_dev_t *hw, unsigned char isEnable)
+{
+	if(isEnable == ENABLE)
+	{
+		// dieu khien cho phep ghi vao cac thanh ghi du lieu
+		hw->control_regs[CONTROL_ACCESS_REG] |= CTRL_WRITE_DATA_BIT;
+		// cap nhat trang thai " co the ghi"
+        hw->status_regs[DEVICE_STATUS_REG] |= STS_WRITE_ACCESS_BIT;
+	}
+    else
+    {
+        // dieu khien khong cho phep ghi vao cac thanh ghi du lieu
+		hw->control_regs[CONTROL_ACCESS_REG] &= ~CTRL_WRITE_DATA_BIT;
+		// cap nhat trang thai " khong the ghi"
+        hw->status_regs[DEVICE_STATUS_REG] &= ~STS_WRITE_ACCESS_BIT;
+    }
+}
 
 /* ham xu ly tin hieu ngat gui tu thiet bi */
 
@@ -164,6 +230,43 @@ static ssize_t vchar_driver_write(struct file *filp, const char __user *user_buf
 	return num_bytes;
 }
 
+static long vchar_driver_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+    int ret = 0;
+    unsigned char isReadEnable;
+    unsigned char isWriteEnable;
+    sts_regs_t status;
+    printk("Handle ioctl event (cmd: %u)\n", cmd);
+    switch(cmd)
+    {
+        case VCHAR_CLR_DATA_REGS:
+            ret = vchar_hw_clear_data(vchar_drv.vchar_hw);
+            if(ret < 0)
+                printk("Can not clear data registers\n");
+            else
+                printk("Data registers have been cleared\n");
+            break;
+        case VCHAR_SET_RD_DATA_REGS:
+            copy_from_user(&isReadEnable, (unsigned char *) arg, sizeof(isReadEnable));
+            vchar_hw_enable_read(vchar_drv.vchar_hw, isReadEnable);
+            printk("Data registers have been %s to read\n", (isReadEnable == ENABLE)?"enable":"disable");
+            break;
+        case VCHAR_SET_WR_DATA_REGS:
+
+            copy_from_user(&isWriteEnable, (unsigned char *)arg, sizeof(isWriteEnable));
+            vchar_hw_enable_write(vchar_drv.vchar_hw, isWriteEnable);
+            printk("Data registers have been %s to write\n", (isWriteEnable == ENABLE)?"enabled":"disabled");
+            break;
+        case VCHAR_GET_STS_REGS:
+            vchar_hw_get_status(vchar_drv.vchar_hw, &status);
+            copy_to_user((sts_regs_t *) arg, &status, sizeof(status));
+            printk("Got information from status registers\n");
+            break;
+        default:
+            break;
+    }
+    return ret;
+}
 
 
 static struct file_operations fops = 
@@ -173,6 +276,7 @@ static struct file_operations fops =
 	.release = vchar_driver_release,
 	.read 	= vchar_driver_read,
 	.write 	= vchar_driver_write,
+    .unlocked_ioctl = vchar_driver_ioctl,
 };
 /* ham khoi tao driver */
 static int __init vchar_driver_init(void)
