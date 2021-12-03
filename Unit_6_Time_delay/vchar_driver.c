@@ -17,12 +17,14 @@
 #include <linux/seq_file.h> /* thu vien nay phuc vu seq_file */
 #include <linux/timekeeping.h> /* thu vien chua cac ham de lay wall time */
 #include <linux/jiffies.h> /* thu vien nay chua cac ham de lay symtem uptime */
+#include <linux/sched.h> /* thu vien nay chua cac ham lien quan toi lap lich */
+#include <linux/delay.h> /* thu vien nay chua cac ham lien quan toi delay va sleep */
 
 #include "vchar_driver.h" /* thu vien nay mo ta cac thanh ghi cua vchar device */
 
 #define DRIVER_AUTHOR "Tiep Cao <caotiepc5@gmail.com>"
 #define DRIVER_DESC   "A sample character device driver"
-#define DRIVER_VERSION "2.0"
+#define DRIVER_VERSION "2.1"
 #define MAGICAL_NUMBER 243
 #define VCHAR_CLR_DATA_REGS _IO(MAGICAL_NUMBER, 0)
 #define VCHAR_GET_STS_REGS  _IOR(MAGICAL_NUMBER, 1, sts_regs_t *)
@@ -210,9 +212,12 @@ static ssize_t vchar_driver_read(struct file *filp, char __user *user_buf, size_
     struct timespec64 rd_ts;
     ktime_get_coarse_real_ts64(&rd_ts);
 
-	printk("Handle read event start from %lld, %zu bytes at %ld.%ld from Epoch\n", *off, len, rd_ts.tv_sec, rd_ts.tv_nsec/1000000);
+	printk("Handle read event start from %lld, %zu bytes at %lld.%lld from Epoch\n", *off, len, rd_ts.tv_sec, rd_ts.tv_nsec/1000000);
 	if((kernel_buf = kzalloc(len, GFP_KERNEL)) == NULL)
 		return 0;
+    __set_current_state(TASK_UNINTERRUPTIBLE);
+    schedule_timeout(10 * HZ);
+    
 	num_bytes = vchar_hw_read_data(vchar_drv.vchar_hw, *off, len, kernel_buf);
 	if(num_bytes < 0)
 		return -EFAULT;
@@ -229,10 +234,11 @@ static ssize_t vchar_driver_write(struct file *filp, const char __user *user_buf
     struct timeval wr_tv;
     
     // do_gettimeofday(&wr_tv);
-	printk("Handle write event start from %lld, %zu bytes at %ld.%ld from Epoch\n", *off, len, wr_tv.tv_sec, wr_tv.tv_usec/1000);
+	printk("Handle write event start from %lld, %zu bytes at %lld.%lld from Epoch\n", *off, len, wr_tv.tv_sec, wr_tv.tv_usec/1000);
 	kernel_buf = kzalloc(len, GFP_KERNEL);
 	if(NULL == kernel_buf)
 		return -EFAULT;
+    mdelay(10000);
 	if(copy_from_user(kernel_buf, user_buf, len))
 		return -EFAULT;
 	num_bytes = vchar_hw_write_data(vchar_drv.vchar_hw, *off, len, kernel_buf);
