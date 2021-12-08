@@ -17,14 +17,13 @@
 #include <linux/seq_file.h> /* thu vien nay phuc vu seq_file */
 #include <linux/timekeeping.h> /* thu vien chua cac ham de lay wall time */
 #include <linux/jiffies.h> /* thu vien nay chua cac ham de lay symtem uptime */
-#include <linux/sched.h> /* thu vien nay chua cac ham lien quan toi lap lich */
-#include <linux/delay.h> /* thu vien nay chua cac ham lien quan toi delay va sleep */
+#include <linux/timer.h> /* thu vien nay chua cac ham thao tac voi kernel timer */
 
 #include "vchar_driver.h" /* thu vien nay mo ta cac thanh ghi cua vchar device */
 
 #define DRIVER_AUTHOR "Tiep Cao <caotiepc5@gmail.com>"
 #define DRIVER_DESC   "A sample character device driver"
-#define DRIVER_VERSION "2.1"
+#define DRIVER_VERSION "2.3"
 #define MAGICAL_NUMBER 243
 #define VCHAR_CLR_DATA_REGS _IO(MAGICAL_NUMBER, 0)
 #define VCHAR_GET_STS_REGS  _IOR(MAGICAL_NUMBER, 1, sts_regs_t *)
@@ -53,8 +52,18 @@ struct _vchar_drv {
 	vchar_dev_t *vchar_hw;
 	struct cdev *vcdev;
 	unsigned int open_cnt;
-    unsigned long start_time;
+    struct timer_list vchar_ktimer;
 }vchar_drv;
+
+typedef struct vchar_ktimer_data {
+    int param1;
+    int param2;
+} vchar_ktimer_data_t;
+
+static vchar_ktimer_data_t KernelTimedata = {
+        .param1 = 0,
+        .param2 = 0
+    };
 
 /****************************** device specific - START *****************************/
 /* ham khoi tao thiet bi */
@@ -191,16 +200,12 @@ void vchar_hw_enable_write(vchar_dev_t *hw, unsigned char isEnable)
 static int vchar_driver_open(struct inode *inode, struct file *filp)
 {
 	vchar_drv.open_cnt++;
-    vchar_drv.start_time = jiffies;
 	printk("Handle opened event (%d)\n", vchar_drv.open_cnt);
 	return 0;
 }
 
 static int vchar_driver_release(struct inode *inode, struct file *filp)
 {
-    struct timeval using_time;
-    jiffies_to_timeval(jiffies - vchar_drv.start_time, &using_time);
-    printk(KERN_INFO "The driver is user in %ld.%ld seconds\n", using_time.tv_sec, using_time.tv_usec/1000);
 	printk("Handle closed event\n");
 	return 0;
 }
@@ -209,15 +214,11 @@ static ssize_t vchar_driver_read(struct file *filp, char __user *user_buf, size_
 {
 	char *kernel_buf = NULL;
 	int num_bytes = 0;
-    struct timespec64 rd_ts;
-    ktime_get_coarse_real_ts64(&rd_ts);
 
-	printk("Handle read event start from %lld, %zu bytes at %lld.%lld from Epoch\n", *off, len, rd_ts.tv_sec, rd_ts.tv_nsec/1000000);
+	printk("Handle read event start from %lld, %zu bytes\n", *off, len);
 	if((kernel_buf = kzalloc(len, GFP_KERNEL)) == NULL)
 		return 0;
-    __set_current_state(TASK_UNINTERRUPTIBLE);
-    schedule_timeout(10 * HZ);
-    
+
 	num_bytes = vchar_hw_read_data(vchar_drv.vchar_hw, *off, len, kernel_buf);
 	if(num_bytes < 0)
 		return -EFAULT;
@@ -231,14 +232,13 @@ static ssize_t vchar_driver_write(struct file *filp, const char __user *user_buf
 {
 	char *kernel_buf = NULL;
 	int num_bytes = 0;
-    struct timeval wr_tv;
+    // struct timeval wr_tv;
     
     // do_gettimeofday(&wr_tv);
-	printk("Handle write event start from %lld, %zu bytes at %lld.%lld from Epoch\n", *off, len, wr_tv.tv_sec, wr_tv.tv_usec/1000);
+	printk("Handle write event start from %lld, %zu bytes\n", *off, len);
 	kernel_buf = kzalloc(len, GFP_KERNEL);
 	if(NULL == kernel_buf)
 		return -EFAULT;
-    mdelay(10000);
 	if(copy_from_user(kernel_buf, user_buf, len))
 		return -EFAULT;
 	num_bytes = vchar_hw_write_data(vchar_drv.vchar_hw, *off, len, kernel_buf);
@@ -372,6 +372,25 @@ static struct file_operations proc_fops =
     .release = vchar_proc_release,
     .read    = vchar_proc_read,
 };
+
+static void handle_timer(struct timer_list *pKernelTime)
+{
+
+    ++KernelTimedata.param1;
+    --KernelTimedata.param2;
+    printk(KERN_INFO "Information: %d & %d\n", KernelTimedata.param1, KernelTimedata.param2);
+    
+    /* change time scheldule if continue run */
+    mod_timer(&vchar_drv.vchar_ktimer, jiffies + 10*HZ);
+}
+
+static void configure_timer(struct timer_list *ktimer)
+{
+    
+    ktimer->expires = jiffies + 10 * HZ;
+    // ktimer->function = handle_timer;
+    // ktimer->data = (unsigned long)&data;
+}
 /* ham khoi tao driver */
 static int __init vchar_driver_init(void)
 {
@@ -432,6 +451,10 @@ static int __init vchar_driver_init(void)
         printk(KERN_ERR "failed to create file in procfs\n");
         goto failed_create_proc;
     }
+    /* khoi tao, cau hinh va dang ki kernel timer voi linux kernel */
+    __init_timer(&vchar_drv.vchar_ktimer, handle_timer, 0);
+    configure_timer(&vchar_drv.vchar_ktimer);
+    add_timer(&vchar_drv.vchar_ktimer);
 
 	printk("Initialize vchar driver successfully\n");
 	return 0;
@@ -454,6 +477,8 @@ failed_register_devnum:
 /* ham ket thuc driver */
 static void __exit vchar_driver_exit(void)
 {
+    /* huy kernel timer */
+    del_timer(&vchar_drv.vchar_ktimer);
     /* huy file /proc/vchar_proc */
     remove_proc_entry("vchar_proc", NULL);
 	/* huy dang ky xu ly ngat */
