@@ -29,7 +29,7 @@
 
 #define DRIVER_AUTHOR "Tiep Cao <caotiepc5@gmail.com>"
 #define DRIVER_DESC   "A sample character device driver"
-#define DRIVER_VERSION "3.0"
+#define DRIVER_VERSION "3.1"
 #define MAGICAL_NUMBER 243
 #define IRQ_NUMBER      10
 #define VCHAR_CLR_DATA_REGS _IO(MAGICAL_NUMBER, 0)
@@ -200,14 +200,25 @@ void vchar_hw_enable_write(vchar_dev_t *hw, unsigned char isEnable)
 }
 
 /* ham xu ly tin hieu ngat gui tu thiet bi */
+void vchar_hw_bh_task(unsigned long arg)
+{
+    unsigned int *intr_cnt = (unsigned int *)arg;
+    printk(KERN_INFO "[Tast in bottom haft][Tasklet][CUP %d], interrupt counter = %d\n", smp_processor_id(), *intr_cnt);
+    
+}
+
+DECLARE_TASKLET(vchar_static_tasklet, vchar_hw_bh_task, (unsigned long)&vchar_drv.intr_cnt);
+
 irqreturn_t vchar_hw_isr(int irq, void *dev)
 {
     /* Xu li cac cong viec thuoc top-half */
     vchar_drv.intr_cnt++;
     printk(KERN_INFO "Interrupt process!\n");
     /* kich hoat ham xu ly cac cong viec thuoc phan bottom-half */
+    tasklet_schedule(&vchar_static_tasklet);
     return IRQ_HANDLED;
 }
+
 
 /******************************* device specific - END *****************************/
 
@@ -514,6 +525,7 @@ static void __exit vchar_driver_exit(void)
     /* huy file /proc/vchar_proc */
     remove_proc_entry("vchar_proc", NULL);
 	/* huy dang ky xu ly ngat */
+    tasklet_kill(&vchar_static_tasklet);
     free_irq(IRQ_NUMBER, vchar_hw_isr);
 	/* huy dang ky entry point voi kernel */
 	cdev_del(vchar_drv.vcdev);
