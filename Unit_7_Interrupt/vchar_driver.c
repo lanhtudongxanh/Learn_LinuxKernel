@@ -19,6 +19,7 @@
 #include <linux/jiffies.h> /* thu vien nay chua cac ham de lay symtem uptime */
 #include <linux/timer.h> /* thu vien nay chua cac ham thao tac voi kernel timer */
 #include <linux/interrupt.h> /* thu vien chua cac ham ham dang ky va dieu khien ngat */
+#include <linux/workqueue.h> /* thu vien chu cac ham lam viec voi workqueue */
 // #include <linux/irq.h>
 // #include <asm/irq.h>
 // #include <asm/hw_irq.h>
@@ -29,7 +30,7 @@
 
 #define DRIVER_AUTHOR "Tiep Cao <caotiepc5@gmail.com>"
 #define DRIVER_DESC   "A sample character device driver"
-#define DRIVER_VERSION "3.1"
+#define DRIVER_VERSION "3.3"
 #define MAGICAL_NUMBER 243
 #define IRQ_NUMBER      10
 #define VCHAR_CLR_DATA_REGS _IO(MAGICAL_NUMBER, 0)
@@ -200,22 +201,22 @@ void vchar_hw_enable_write(vchar_dev_t *hw, unsigned char isEnable)
 }
 
 /* ham xu ly tin hieu ngat gui tu thiet bi */
-void vchar_hw_bh_task(unsigned long arg)
+void vchar_hw_bh_task(struct work_struct *task)
 {
-    unsigned int *intr_cnt = (unsigned int *)arg;
-    printk(KERN_INFO "[Tast in bottom haft][Tasklet][CUP %d], interrupt counter = %d\n", smp_processor_id(), *intr_cnt);
-    
+    printk(KERN_INFO "[Tasks in bottom-half][Workqueue][CPU %d]\n", smp_processor_id());
 }
 
-DECLARE_TASKLET(vchar_static_tasklet, vchar_hw_bh_task, (unsigned long)&vchar_drv.intr_cnt);
+DECLARE_WORK(vchar_static_work, vchar_hw_bh_task);
+DECLARE_DELAYED_WORK(vchar_static_delayed_work, vchar_hw_bh_task);
 
 irqreturn_t vchar_hw_isr(int irq, void *dev)
 {
     /* Xu li cac cong viec thuoc top-half */
     vchar_drv.intr_cnt++;
-    printk(KERN_INFO "Interrupt process!\n");
     /* kich hoat ham xu ly cac cong viec thuoc phan bottom-half */
-    tasklet_schedule(&vchar_static_tasklet);
+    schedule_work_on(0, &vchar_static_work);
+    schedule_delayed_work_on(1, &vchar_static_delayed_work, 2*HZ);
+    
     return IRQ_HANDLED;
 }
 
@@ -525,7 +526,8 @@ static void __exit vchar_driver_exit(void)
     /* huy file /proc/vchar_proc */
     remove_proc_entry("vchar_proc", NULL);
 	/* huy dang ky xu ly ngat */
-    tasklet_kill(&vchar_static_tasklet);
+    cancel_work_sync(&vchar_static_work);
+    cancel_delayed_work_sync(&vchar_static_delayed_work);
     free_irq(IRQ_NUMBER, vchar_hw_isr);
 	/* huy dang ky entry point voi kernel */
 	cdev_del(vchar_drv.vcdev);
