@@ -64,7 +64,7 @@ struct _vchar_drv {
 	unsigned int open_cnt;
     volatile unsigned int intr_cnt;
     struct timer_list vchar_ktimer;
-    unsigned int critical_resource;
+    atomic_t critical_resource;
 }vchar_drv;
 
 typedef struct vchar_ktimer_data {
@@ -314,11 +314,11 @@ static long vchar_driver_ioctl(struct file *filp, unsigned int cmd, unsigned lon
             printk("Got information from status registers\n");
             break;
         case VCHAR_CHANGE_DATA_IN_CRITICAL_RESOURCE:
-            vchar_drv.critical_resource++;
+            atomic_inc(&vchar_drv.critical_resource);
             break;
         case VCHAR_SHOW_THEN_RESET_CRITICAL_RESOURCE:
-            printk(KERN_INFO "data in critical resource : %d\n", vchar_drv.critical_resource);
-            vchar_drv.critical_resource = 0;
+            printk(KERN_INFO "data in critical resource : %d\n", atomic_read(&vchar_drv.critical_resource));
+            atomic_set(&vchar_drv.critical_resource,0);
             break;
         default:
             break;
