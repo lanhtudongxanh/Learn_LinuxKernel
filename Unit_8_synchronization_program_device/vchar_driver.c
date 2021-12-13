@@ -20,7 +20,7 @@
 #include <linux/timer.h> /* thu vien nay chua cac ham thao tac voi kernel timer */
 #include <linux/interrupt.h> /* thu vien chua cac ham ham dang ky va dieu khien ngat */
 #include <linux/workqueue.h> /* thu vien chu cac ham lam viec voi workqueue */
-#include <linux/mutex.h> /* thu vien chua cac ham lam viec voi mutex lock */
+#include <linux/semaphore.h> /* thu vien chua cac ham lam viec voi semphore lock */
 // #include <linux/irq.h>
 // #include <asm/irq.h>
 // #include <asm/hw_irq.h>
@@ -31,7 +31,7 @@
 
 #define DRIVER_AUTHOR "Tiep Cao <caotiepc5@gmail.com>"
 #define DRIVER_DESC   "A sample character device driver"
-#define DRIVER_VERSION "4.3"
+#define DRIVER_VERSION "4.4"
 #define MAGICAL_NUMBER 243
 #define IRQ_NUMBER      10
 #define VCHAR_CLR_DATA_REGS _IO(MAGICAL_NUMBER, 0)
@@ -57,7 +57,7 @@ typedef struct vchar_dev {
 } vchar_dev_t;
 
 struct _vchar_drv {
-    struct mutex vchar_mutexlock;
+    struct semaphore vchar_semaphore;
 	dev_t dev_num;
 	struct class *dev_class;
 	struct device *dev;
@@ -316,9 +316,9 @@ static long vchar_driver_ioctl(struct file *filp, unsigned int cmd, unsigned lon
             printk("Got information from status registers\n");
             break;
         case VCHAR_CHANGE_DATA_IN_CRITICAL_RESOURCE:
-            mutex_lock(&vchar_drv.vchar_mutexlock);
+            down(&vchar_drv.vchar_semaphore);
             vchar_drv.critical_resource += 1;
-            mutex_unlock(&vchar_drv.vchar_mutexlock);
+            up(&vchar_drv.vchar_semaphore);
             break;
         case VCHAR_SHOW_THEN_RESET_CRITICAL_RESOURCE:
             printk(KERN_INFO "data in critical resource : %d\n", vchar_drv.critical_resource);
@@ -476,7 +476,7 @@ static int __init vchar_driver_init(void)
 		ret = -ENOMEM;
 		goto failed_allocate_structure;
 	}
-    mutex_init(&vchar_drv.vchar_mutexlock);
+    sema_init(&vchar_drv.vchar_semaphore, 1);
 	/* khoi tao thiet bi vat ly */
 	ret = vchar_hw_init(vchar_drv.vchar_hw);
 	if(ret < 0) {
